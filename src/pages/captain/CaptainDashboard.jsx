@@ -236,6 +236,43 @@ function CaptainDashboard() {
     }
   };
 
+  const handleCompleteRide = async () => {
+    if (!acceptedRide || !otpVerified || !captain) return;
+    
+    try {
+      const socket = socketManager.getSocket();
+      if (socket && socket.connected) {
+        socket.emit('end-ride', {
+          rideId: acceptedRide._id,
+          userSocketId: userDetails?.socketId || null,
+          captainId: captain._id
+        });
+        
+        toast({
+          title: 'Ride Completed',
+          description: 'Ride has been marked as completed.',
+        });
+        
+        // Reset state after a delay
+        setTimeout(() => {
+          setAcceptedRide(null);
+          setUserDetails(null);
+          setOtpVerified(false);
+          setOtp('');
+          setRouteCoordinates([]);
+          setPickupDestinationRoute([]);
+        }, 2000);
+      }
+    } catch (err) {
+      console.error('Error completing ride:', err);
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to complete ride. Please try again.',
+      });
+    }
+  };
+
   // Listen for OTP verification response
   useEffect(() => {
     const socket = socketManager.getSocket();
@@ -692,13 +729,23 @@ function CaptainDashboard() {
 
                 {/* OTP Verified Message */}
                 {otpVerified && (
-                  <div className="bg-green-500/20 backdrop-blur-md border border-green-500/30 rounded-lg p-4">
-                    <p className="text-white font-semibold text-sm text-center">
-                      ✓ OTP Verified - Ride Started
-                    </p>
-                    <p className="text-white/80 text-xs text-center mt-1">
-                      Navigate to destination
-                    </p>
+                  <div className="space-y-3">
+                    <div className="bg-green-500/20 backdrop-blur-md border border-green-500/30 rounded-lg p-4">
+                      <p className="text-white font-semibold text-sm text-center">
+                        ✓ OTP Verified - Ride Started
+                      </p>
+                      <p className="text-white/80 text-xs text-center mt-1">
+                        Navigate to destination
+                      </p>
+                    </div>
+                    
+                    {/* Complete Ride Button */}
+                    <Button
+                      onClick={handleCompleteRide}
+                      className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold h-12"
+                    >
+                      Mark Trip as Completed
+                    </Button>
                   </div>
                 )}
               </div>

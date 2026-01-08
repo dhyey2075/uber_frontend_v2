@@ -2,7 +2,7 @@ import * as React from "react"
 import { ToastProvider, ToastViewport, Toast, ToastTitle, ToastDescription, ToastClose } from "./toast"
 
 const TOAST_LIMIT = 1
-const TOAST_REMOVE_DELAY = 5000
+const TOAST_REMOVE_DELAY = 3000
 
 const actionTypes = {
   ADD_TOAST: "ADD_TOAST",

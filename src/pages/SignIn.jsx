@@ -1,20 +1,16 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { api } from '../utils/api';
-import { Button } from '../components/ui/button';
-import { Input } from '../components/ui/input';
-import { Label } from '../components/ui/label';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
 import { Eye, EyeOff } from 'lucide-react';
-import { BACKGROUND_IMAGE_URL } from '../config/background';
+import { useToast } from '../components/ui/use-toast';
 
 function SignIn() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { toast } = useToast();
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -25,123 +21,145 @@ function SignIn() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
     setLoading(true);
 
     try {
       const response = await api.login(email, password);
-      // Clear any old tokens first
       localStorage.removeItem('token');
       localStorage.removeItem('captain_token');
-      // Set new token
       localStorage.setItem('token', response.token);
-      // Dispatch event to notify App of token change
       window.dispatchEvent(new Event('tokenChange'));
-      // Small delay to ensure token is set and event is processed
       await new Promise(resolve => setTimeout(resolve, 50));
-      // Force navigation with replace to clear history
       navigate('/user/dashboard', { replace: true });
     } catch (err) {
-      setError(err.message || 'Invalid email or password');
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: err.message || 'Invalid email or password',
+      });
     } finally {
       setLoading(false);
     }
   };
 
-  const backgroundStyle = BACKGROUND_IMAGE_URL 
-    ? {
-        backgroundImage: `url(${BACKGROUND_IMAGE_URL})`,
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-        backgroundRepeat: 'no-repeat',
-        backgroundAttachment: 'fixed',
-      }
-    : {
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-      };
-
   return (
-    <div 
-      className="flex justify-center items-center min-h-screen p-2 sm:p-4 md:p-5 relative overflow-hidden"
-      style={backgroundStyle}
-    >
-      <div className="absolute inset-0 bg-black/20 sm:bg-black/30"></div>
-      <Card className="w-full max-w-md relative z-10 border-0 sm:border border-white/20 bg-white/10 backdrop-blur-xl shadow-2xl">
-        <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl sm:text-3xl text-center text-white font-bold">Sign In</CardTitle>
-          <CardDescription className="text-center text-white/90">
-            Enter your credentials to access your account
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {error && (
-              <div className="bg-destructive/10 text-destructive p-3 rounded-md text-sm text-center border border-destructive/20">
-                {error}
-              </div>
-            )}
-            
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="Enter your email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="h-10 sm:h-11"
-              />
+    <div className="flex flex-col lg:flex-row min-h-screen bg-black text-white">
+
+      {/* Left Side - Image and Form (Mobile: vertical, Desktop: side by side) */}
+      <div className="w-full lg:w-1/2 flex flex-col">
+        {/* Top Image */}
+        <div className="w-full flex justify-center items-center p-4 lg:p-6">
+          <img 
+            src="https://tb-static.uber.com/prod/udam-assets/3b852d0c-6d5b-427f-bd3a-84c4d98d5a5d.png" 
+            alt="user" 
+            className="w-full max-w-[200px] lg:max-w-[250px] h-auto object-contain rounded-lg"
+          />
+        </div>
+
+        {/* Form Section */}
+        <div className="flex-1 flex items-center justify-center p-6 sm:p-8 lg:p-12">
+          <div className="w-full max-w-md">
+            {/* Welcome Text */}
+            <div className="mb-6">
+              <h1 className="text-white text-3xl font-bold">Welcome back</h1>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <div className="relative">
-                <Input
-                  id="password"
-                  type={showPassword ? 'text' : 'password'}
-                  placeholder="Enter your password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+            {/* Form */}
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <div>
+                <label htmlFor="email" className="block text-base font-medium text-gray-300 mb-2">
+                  Email
+                </label>
+                <input
+                  id="email"
+                  type="email"
+                  placeholder="Enter your email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                   required
-                  minLength={6}
-                  className="h-10 sm:h-11 pr-10"
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent transition-all"
                 />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
-                  onClick={() => setShowPassword(!showPassword)}
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
-                >
-                  {showPassword ? (
-                    <EyeOff className="h-4 w-4 text-muted-foreground" />
-                  ) : (
-                    <Eye className="h-4 w-4 text-muted-foreground" />
-                  )}
-                </Button>
               </div>
-            </div>
 
-            <Button
-              type="submit"
-              disabled={loading}
-              className="w-full h-10 sm:h-11"
-            >
-              {loading ? 'Signing in...' : 'Sign In'}
-            </Button>
-          </form>
-        </CardContent>
-        <CardFooter className="flex justify-center">
-          <p className="text-sm text-white/90">
-            Don't have an account?{' '}
-            <Link to="/user/signup" className="text-primary font-semibold hover:underline">
-              Sign Up
-            </Link>
-          </p>
-        </CardFooter>
-      </Card>
+              <div>
+                <label htmlFor="password" className="block text-base font-medium text-gray-300 mb-2">
+                  Password
+                </label>
+                <div className="relative">
+                  <input
+                    id="password"
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Enter your password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    minLength={6}
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent transition-all pr-12"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 transition-colors"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-5 w-5" />
+                    ) : (
+                      <Eye className="h-5 w-5" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <div className='flex justify-center pt-2'>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full sm:w-3/4 bg-white text-black py-3 rounded-lg font-semibold hover:bg-gray-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
+                >
+                  {loading ? 'Signing in...' : 'Sign In'}
+                </button>
+              </div>
+            </form>
+
+            {/* Footer */}
+            <div className="mt-6 text-center">
+              <p className="text-sm text-white">
+                Don't have an account?{' '}
+                <Link to="/user/signup" className="text-white font-semibold hover:underline">
+                  Sign Up
+                </Link>
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Right Side - Hero Section (Hidden on Mobile) */}
+      <div className="hidden lg:flex lg:w-1/2 bg-black items-center justify-center p-12 relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-black to-gray-800"></div>
+        <div className="relative z-10 text-white text-center max-w-lg">
+          <h2 className="text-5xl font-bold mb-6">Go anywhere with Uber</h2>
+          <p className="text-xl text-gray-300">Request a ride, hop in, and go.</p>
+          <div className="mt-12 grid grid-cols-3 gap-8 text-center">
+            <div>
+              <div className="text-4xl font-bold">100M+</div>
+              <div className="text-sm text-gray-400 mt-2">Riders</div>
+            </div>
+            <div>
+              <div className="text-4xl font-bold">10K+</div>
+              <div className="text-sm text-gray-400 mt-2">Cities</div>
+            </div>
+            <div>
+              <div className="text-4xl font-bold">15B+</div>
+              <div className="text-sm text-gray-400 mt-2">Trips</div>
+            </div>
+          </div>
+        </div>
+        {/* Decorative circles */}
+        <div className="absolute top-10 right-10 w-64 h-64 bg-white/5 rounded-full blur-3xl"></div>
+        <div className="absolute bottom-10 left-10 w-96 h-96 bg-white/5 rounded-full blur-3xl"></div>
+      </div>
     </div>
   );
 }

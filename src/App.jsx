@@ -9,6 +9,8 @@ import CaptainDashboard from './pages/captain/CaptainDashboard';
 import { Toaster } from './components/ui/use-toast.jsx';
 import { getAuthKey } from './utils/auth';
 import './App.css';
+import UberOnboarding from './pages/UserHome.jsx';
+import CaptainHome from './pages/CaptainHome.jsx';
 
 function App() {
   const [authKey, setAuthKey] = useState(getAuthKey());
@@ -39,11 +41,12 @@ function App() {
       <Routes>
         <Route path="/user/signin" element={<SignIn />} />
         <Route path="/user/signup" element={<SignUp />} />
-        <Route path="/user/dashboard" element={<Dashboard key={authKey} />} />
+        <Route path="/user/dashboard" element={<Dashboard />} />
         <Route path="/captain/signin" element={<CaptainSignIn />} />
         <Route path="/captain/signup" element={<CaptainSignUp />} />
         <Route path="/captain/dashboard" element={<CaptainDashboard key={authKey} />} />
-        <Route path="/" element={<Navigate to="/user/signin" replace />} />
+        <Route path="/" element={<UberOnboarding />} />
+        <Route path="/captain" element={<CaptainHome />} />
       </Routes>
     </BrowserRouter>
   );
