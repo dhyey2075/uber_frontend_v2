@@ -103,7 +103,7 @@ function CaptainSignUp() {
         {/* Top Image */}
         <div className="w-full flex justify-center items-center p-4 lg:p-6">
           <img 
-            src="https://www.websitesmadeeasy.com.au/media/17041/uber-ce.png" 
+            src="https://tb-static.uber.com/prod/udam-assets/3b852d0c-6d5b-427f-bd3a-84c4d98d5a5d.png" 
             alt="captain" 
             className="w-full max-w-[200px] lg:max-w-[250px] h-auto object-contain rounded-lg"
           />
@@ -306,20 +306,20 @@ function CaptainSignUp() {
       <div className="hidden lg:flex lg:w-1/2 bg-black items-center justify-center p-12 relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-black to-gray-800"></div>
         <div className="relative z-10 text-white text-center max-w-lg">
-          <h2 className="text-5xl font-bold mb-6">Go anywhere with Uber</h2>
-          <p className="text-xl text-gray-300">Request a ride, hop in, and go.</p>
+          <h2 className="text-5xl font-bold mb-6">Drive and earn on your schedule</h2>
+          <p className="text-xl text-gray-300">Join thousands of captains earning with Uber.</p>
           <div className="mt-12 grid grid-cols-3 gap-8 text-center">
             <div>
-              <div className="text-4xl font-bold">100M+</div>
-              <div className="text-sm text-gray-400 mt-2">Riders</div>
+              <div className="text-4xl font-bold">24/7</div>
+              <div className="text-sm text-gray-400 mt-2">Flexible hours</div>
             </div>
             <div>
-              <div className="text-4xl font-bold">10K+</div>
-              <div className="text-sm text-gray-400 mt-2">Cities</div>
+              <div className="text-4xl font-bold">Weekly</div>
+              <div className="text-sm text-gray-400 mt-2">Payouts</div>
             </div>
             <div>
-              <div className="text-4xl font-bold">15B+</div>
-              <div className="text-sm text-gray-400 mt-2">Trips</div>
+              <div className="text-4xl font-bold">You</div>
+              <div className="text-sm text-gray-400 mt-2">Be your own boss</div>
             </div>
           </div>
         </div>

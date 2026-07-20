@@ -1,0 +1,117 @@
+.map-marker-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+}
+
+.map-marker-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid #111;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.map-marker-icon--user {
+  border-color: #111;
+  z-index: 600;
+}
+
+.map-marker-icon--captain {
+  border-color: #111;
+  background: #fff;
+  z-index: 500;
+}
+
+.map-marker-vehicle-img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  display: block;
+}
+
+.map-marker-vehicle-img--plain {
+  width: 40px;
+  height: 40px;
+  background: transparent;
+  border: none;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.25));
+}
+
+.map-marker-icon--pickup {
+  border-color: #111;
+  background: #111;
+}
+
+.map-marker-icon--pickup svg {
+  stroke: #fff;
+}
+
+.map-marker-icon--destination {
+  border-color: #10b981;
+  background: #10b981;
+}
+
+.map-marker-icon--destination svg {
+  stroke: #fff;
+}
+
+.map-marker-label {
+  margin-top: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: 'Poppins', sans-serif;
+  border-radius: 9999px;
+  white-space: nowrap;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  line-height: 1.4;
+}
+
+.map-marker-label--you {
+  background: #111;
+  color: #fff;
+}
+
+.map-marker-label--pickup {
+  background: #111;
+  color: #fff;
+}
+
+.map-marker-label--drop {
+  background: #10b981;
+  color: #fff;
+}
+
+.map-marker-label--vehicle {
+  background: #fff;
+  color: #111;
+  border: 1px solid #e5e5e5;
+}
+
+.map-marker--searching .map-marker-icon--captain,
+.map-marker--searching .map-marker-vehicle-img--plain {
+  animation: map-marker-pulse 2s ease-in-out infinite;
+}
+
+@keyframes map-marker-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  }
+  50% {
+    transform: scale(1.08);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  }
+}
+
+.leaflet-div-icon {
+  background: transparent !important;
+  border: none !important;
+}

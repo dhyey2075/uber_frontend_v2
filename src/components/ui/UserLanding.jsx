@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { MapContainer, TileLayer, Marker, Polyline, useMap } from 'react-leaflet'
-import L from 'leaflet'
-import 'leaflet/dist/leaflet.css'
+import RideMap from '../map/RideMap'
+import { resolveMapPhase } from '../../utils/mapUtils'
+import { useRouteFetcher } from '../../utils/useRouteFetcher'
+import { getVehicleLabel } from '../../utils/tripUtils'
 import {
     Car,
     CarFront,
@@ -19,7 +20,9 @@ import {
     ArrowRight,
     MapPin,
     Key,
-    Loader2
+    Loader2,
+    Navigation,
+    IndianRupee
 } from 'lucide-react'
 import LocationSearch from './LocationSearch'
 import Fare from './Fare'
@@ -27,39 +30,20 @@ import { api } from '../../utils/api'
 import { socketManager } from '../../utils/socket'
 import { useToast } from '../ui/use-toast'
 
-// Fix for default marker icon in React-Leaflet
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-    iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
-    iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
-    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
-});
-
-// Component to update map center
-function MapUpdater({ center, bounds }) {
-    const map = useMap();
-    useEffect(() => {
-        if (bounds && bounds.length === 2) {
-            // Fit map to show both pickup and destination
-            map.fitBounds(bounds, { padding: [50, 50] });
-        } else if (center) {
-            map.setView(center, map.getZoom());
-        }
-    }, [center, bounds, map]);
-    return null;
-}
-
 const UserLanding = () => {
     const [activeTab, setActiveTab] = useState('Rides')
     const [isSearching, setIsSearching] = useState(false)
     const [showFare, setShowFare] = useState(false)
     const [fare, setFare] = useState(null)
+    const [calculatingFare, setCalculatingFare] = useState(false)
     const [pickup, setPickup] = useState(null)
     const [destination, setDestination] = useState(null)
     // Coords for map markers
     const [pickupCoords, setPickupCoords] = useState(null)
     const [destCoords, setDestCoords] = useState(null)
-    const [routeCoordinates, setRouteCoordinates] = useState([])
+    const [previewRoute, setPreviewRoute] = useState([])
+    const [approachRoute, setApproachRoute] = useState([])
+    const [tripRoute, setTripRoute] = useState([])
     const [creatingRide, setCreatingRide] = useState(false)
     const [selectedVehicleType, setSelectedVehicleType] = useState(null)
     const [currentRide, setCurrentRide] = useState(null)
@@ -73,10 +57,67 @@ const UserLanding = () => {
     const [nearbyCaptains, setNearbyCaptains] = useState([])
     const [rideCompleted, setRideCompleted] = useState(false)
     const [currentUserLocation, setCurrentUserLocation] = useState(null)
+    const [tripStats, setTripStats] = useState(null)
     const navigate = useNavigate()
     const { toast } = useToast()
     const acceptedRideRef = useRef(null)
     const locationUpdateIntervalRef = useRef(null)
+    const pickupCoordsRef = useRef(pickupCoords)
+    const destCoordsRef = useRef(destCoords)
+    const userLocationRef = useRef(userLocation)
+    const otpVerifiedRef = useRef(otpVerified)
+    const lastTripLocationRef = useRef(null)
+    const captainLocationRef = useRef(captainLocation)
+
+    captainLocationRef.current = captainLocation
+
+    const handleRouteError = useCallback((message) => {
+        toast({
+            variant: 'destructive',
+            title: 'Route unavailable',
+            description: message || "Couldn't load route",
+        })
+    }, [toast])
+
+    const { fetchRoute, fetchRouteDebounced, fetchRouteImmediate, resetRouteFetcher } = useRouteFetcher({
+        onRouteError: handleRouteError,
+    })
+
+    const nearbyCaptainsRef = useRef(nearbyCaptains)
+    nearbyCaptainsRef.current = nearbyCaptains
+
+    pickupCoordsRef.current = pickupCoords
+    destCoordsRef.current = destCoords
+    userLocationRef.current = userLocation
+    otpVerifiedRef.current = otpVerified
+
+    const resetRideState = () => {
+        setAcceptedRide(null)
+        acceptedRideRef.current = null
+        setCaptainDetails(null)
+        setCaptainLocation(null)
+        setOtp(null)
+        setOtpVerified(false)
+        setRideCompleted(false)
+        setSearchingCaptain(false)
+        setCreatingRide(false)
+        setCurrentRide(null)
+        setPreviewRoute([])
+        setApproachRoute([])
+        setTripRoute([])
+        setNearbyCaptains([])
+        resetRouteFetcher()
+        lastTripLocationRef.current = null
+        setSelectedVehicleType(null)
+        setShowFare(false)
+        setFare(null)
+        setCalculatingFare(false)
+        setPickup(null)
+        setDestination(null)
+        setPickupCoords(null)
+        setDestCoords(null)
+        setTripStats(null)
+    }
 
     const suggestions = [
         { icon: CarFront, label: 'Ride', promo: false },
@@ -85,10 +126,47 @@ const UserLanding = () => {
         { icon: Calendar, label: 'Reserve', promo: false },
     ]
 
-    // Fetch user profile and connect socket
-    useEffect(() => {
-        if (acceptedRide) return;
+    const loadApproachRoute = useCallback(async (slat, slong, elat, elong, { immediate = false } = {}) => {
+        const fetcher = immediate ? fetchRouteImmediate : fetchRouteDebounced
+        const result = await fetcher(slat, slong, elat, elong, immediate ? {} : { debounce: true, minMove: 30 })
+        if (result?.coordinates?.length) {
+            setApproachRoute(result.coordinates)
+        }
+        return result
+    }, [fetchRouteDebounced, fetchRouteImmediate])
 
+    const resolveCaptainCoords = useCallback((captain) => {
+        if (captain?.location?.lat && captain?.location?.lng) {
+            return [captain.location.lat, captain.location.lng]
+        }
+        const cached = nearbyCaptainsRef.current.find((c) => c._id === captain?._id)
+        if (cached?.location?.lat && cached?.location?.lng) {
+            return [cached.location.lat, cached.location.lng]
+        }
+        return null
+    }, [])
+
+    const getApproachTarget = useCallback(() => {
+        return pickupCoordsRef.current || userLocationRef.current
+    }, [])
+
+    const loadTripRoute = useCallback(async (slat, slong, elat, elong) => {
+        const result = await fetchRoute(slat, slong, elat, elong, { updateTripStats: true, debounce: true, minMove: 50 })
+        if (result?.coordinates?.length) {
+            setTripRoute(result.coordinates)
+            if (result.stats) setTripStats(result.stats)
+        }
+    }, [fetchRoute])
+
+    const loadPreviewRoute = useCallback(async (slat, slong, elat, elong) => {
+        const result = await fetchRoute(slat, slong, elat, elong)
+        if (result?.coordinates?.length) {
+            setPreviewRoute(result.coordinates)
+        }
+    }, [fetchRoute])
+
+    // Keep socket connected for the full dashboard session
+    useEffect(() => {
         const fetchProfile = async () => {
             try {
                 const userData = await api.getProfile();
@@ -103,20 +181,24 @@ const UserLanding = () => {
         fetchProfile();
 
         return () => {
-            if (!acceptedRide) {
-                socketManager.disconnect();
-            }
+            socketManager.disconnect();
         };
-    }, [acceptedRide]);
+    }, []);
 
     // Socket event listeners
     useEffect(() => {
-        const socket = socketManager.getSocket();
-        if (socket && socket.connected) {
+        let cleanup = null;
+        let retryInterval = null;
+
+        const setupListeners = () => {
+            const socket = socketManager.getSocket();
+            if (!socket?.connected) {
+                return false;
+            }
+
             const handleRideAccepted = async (data) => {
                 console.log('Ride accepted by captain:', data);
                 if (data.ride && data.captain) {
-                    // Update all states immediately
                     setSearchingCaptain(false);
                     setCreatingRide(false);
                     setAcceptedRide(data.ride);
@@ -124,31 +206,21 @@ const UserLanding = () => {
                     setCaptainDetails(data.captain);
                     setOtp(data.ride.otp);
                     setFare(null);
-                    setNearbyCaptains([]); // Clear nearby captains
-                    setRouteCoordinates([]); // Clear previous route, will be set to captain-to-pickup route
-                    
-                    console.log('State updated - acceptedRide:', data.ride, 'captainDetails:', data.captain);
+                    setNearbyCaptains([]);
+                    setPreviewRoute([]);
+                    setApproachRoute([]);
 
-                    if (data.captain.location && data.captain.location.lat && data.captain.location.lng) {
-                        const captainLoc = [data.captain.location.lat, data.captain.location.lng];
-                        setCaptainLocation(captainLoc);
-                        
-                        // Fetch route from captain to user (pickup location)
-                        if (userLocation && pickupCoords) {
-                            // Route from captain to pickup location
-                            await fetchRoute(
-                                data.captain.location.lat, 
-                                data.captain.location.lng, 
-                                pickupCoords[0], 
-                                pickupCoords[1]
-                            );
-                        } else if (userLocation) {
-                            // Fallback to user location if pickupCoords not available
-                            await fetchRoute(
-                                data.captain.location.lat, 
-                                data.captain.location.lng, 
-                                userLocation[0], 
-                                userLocation[1]
+                    const captainCoords = resolveCaptainCoords(data.captain);
+                    if (captainCoords) {
+                        setCaptainLocation(captainCoords);
+                        const target = getApproachTarget();
+                        if (target) {
+                            await loadApproachRoute(
+                                captainCoords[0],
+                                captainCoords[1],
+                                target[0],
+                                target[1],
+                                { immediate: true }
                             );
                         }
                     }
@@ -161,28 +233,26 @@ const UserLanding = () => {
             };
 
             const handleCaptainLocationUpdate = async (data) => {
-                console.log('Captain location updated:', data);
-                if (data.location && data.location.lat && data.location.lng) {
+                if (data.location?.lat && data.location?.lng) {
                     const captainLoc = [data.location.lat, data.location.lng];
                     setCaptainLocation(captainLoc);
-                    
-                    // Fetch route from captain to user (pickup location)
-                    if (!otpVerified) {
-                        if (pickupCoords) {
-                            // Route from captain to pickup location
-                            await fetchRoute(
-                                data.location.lat, 
-                                data.location.lng, 
-                                pickupCoords[0], 
-                                pickupCoords[1]
-                            );
-                        } else if (userLocation) {
-                            // Fallback to user location
-                            await fetchRoute(
-                                data.location.lat, 
-                                data.location.lng, 
-                                userLocation[0], 
-                                userLocation[1]
+
+                    if (!otpVerifiedRef.current) {
+                        const pickup = pickupCoordsRef.current;
+                        const userLoc = userLocationRef.current;
+                        if (pickup) {
+                            await loadApproachRoute(data.location.lat, data.location.lng, pickup[0], pickup[1]);
+                        } else if (userLoc) {
+                            await loadApproachRoute(data.location.lat, data.location.lng, userLoc[0], userLoc[1]);
+                        }
+                    } else {
+                        const destination = destCoordsRef.current;
+                        if (destination) {
+                            await loadTripRoute(
+                                data.location.lat,
+                                data.location.lng,
+                                destination[0],
+                                destination[1]
                             );
                         }
                     }
@@ -194,32 +264,22 @@ const UserLanding = () => {
                 if (data.message === 'OTP Verified' && data.ride) {
                     setOtpVerified(true);
                     setAcceptedRide(data.ride);
-                    
-                    // Clear previous route (captain to pickup)
-                    setRouteCoordinates([]);
-                    
-                    // Immediately fetch route from current location to destination
-                    if (destCoords) {
-                        if (navigator.geolocation) {
-                            navigator.geolocation.getCurrentPosition(
-                                async (position) => {
-                                    const { latitude, longitude } = position.coords;
-                                    setCurrentUserLocation([latitude, longitude]);
-                                    await fetchRoute(latitude, longitude, destCoords[0], destCoords[1]);
-                                },
-                                async (error) => {
-                                    console.error('Error getting location for route:', error);
-                                    // Fallback to pickup location
-                                    if (pickupCoords) {
-                                        setCurrentUserLocation(pickupCoords);
-                                        await fetchRoute(pickupCoords[0], pickupCoords[1], destCoords[0], destCoords[1]);
-                                    }
-                                }
-                            );
-                        } else if (pickupCoords) {
-                            // Fallback if geolocation not available
-                            setCurrentUserLocation(pickupCoords);
-                            await fetchRoute(pickupCoords[0], pickupCoords[1], destCoords[0], destCoords[1]);
+                    setApproachRoute([]);
+                    setTripRoute([]);
+
+                    toast({
+                        title: 'Ride Started',
+                        description: 'Your captain verified the OTP. Enjoy your trip!',
+                    });
+
+                    const destination = destCoordsRef.current;
+                    if (destination) {
+                        const origin =
+                            captainLocationRef.current ||
+                            pickupCoordsRef.current ||
+                            userLocationRef.current;
+                        if (origin) {
+                            await loadTripRoute(origin[0], origin[1], destination[0], destination[1]);
                         }
                     }
                 }
@@ -230,15 +290,11 @@ const UserLanding = () => {
                 setRideCompleted(true);
                 toast({
                     title: 'Ride Completed!',
-                    description: 'Your ride has been completed. Redirecting to payment...',
+                    description: 'Your trip has ended. Thanks for riding with us.',
                 });
-                // Redirect to payments page after 2 seconds
                 setTimeout(() => {
-                    navigate('/user/payment', { 
-                        state: { ride: data.ride || acceptedRide },
-                        replace: true 
-                    });
-                }, 2000);
+                    resetRideState();
+                }, 2500);
             };
 
             socket.on('rideAcceptedToUser', handleRideAccepted);
@@ -246,14 +302,61 @@ const UserLanding = () => {
             socket.on('otp-verify-response', handleOtpVerified);
             socket.on('end-ride-to-user', handleRideCompleted);
 
-            return () => {
+            cleanup = () => {
                 socket.off('rideAcceptedToUser', handleRideAccepted);
                 socket.off('captain-location-update', handleCaptainLocationUpdate);
                 socket.off('otp-verify-response', handleOtpVerified);
                 socket.off('end-ride-to-user', handleRideCompleted);
             };
+
+            return true;
+        };
+
+        const handleSocketConnect = () => {
+            if (setupListeners() && retryInterval) {
+                clearInterval(retryInterval);
+                retryInterval = null;
+            }
+        };
+
+        if (!setupListeners()) {
+            retryInterval = setInterval(() => {
+                if (setupListeners()) {
+                    clearInterval(retryInterval);
+                    retryInterval = null;
+                }
+            }, 500);
         }
-    }, [userLocation, otpVerified, toast, navigate, pickupCoords, destCoords]);
+
+        window.addEventListener('socketConnected', handleSocketConnect);
+
+        return () => {
+            if (retryInterval) {
+                clearInterval(retryInterval);
+            }
+            window.removeEventListener('socketConnected', handleSocketConnect);
+            if (cleanup) {
+                cleanup();
+            }
+        };
+    }, [toast, loadApproachRoute, loadTripRoute, resetRideState, resolveCaptainCoords, getApproachTarget]);
+
+    // Keep approach route in sync when captain moves toward pickup
+    useEffect(() => {
+        if (!acceptedRide || otpVerified || !captainLocation) return undefined;
+
+        const target = pickupCoords || userLocation;
+        if (!target) return undefined;
+
+        loadApproachRoute(
+            captainLocation[0],
+            captainLocation[1],
+            target[0],
+            target[1]
+        );
+
+        return undefined;
+    }, [acceptedRide, otpVerified, captainLocation, pickupCoords, userLocation, loadApproachRoute]);
 
     // Get user location
     useEffect(() => {
@@ -278,67 +381,27 @@ const UserLanding = () => {
         }
     }, []);
 
-    // Track user location and update route to destination every 10 seconds when ride is started
+    // Keep trip route in sync from captain location once ride has started
     useEffect(() => {
-        if (otpVerified && acceptedRide && destCoords) {
-            // Update route immediately
-            const updateRoute = async () => {
-                if (navigator.geolocation) {
-                    navigator.geolocation.getCurrentPosition(
-                        async (position) => {
-                            const { latitude, longitude } = position.coords;
-                            const newLocation = [latitude, longitude];
-                            setCurrentUserLocation(newLocation);
-                            
-                            // Fetch route from current location to destination
-                            try {
-                                await fetchRoute(latitude, longitude, destCoords[0], destCoords[1]);
-                            } catch (err) {
-                                console.error('Error updating route:', err);
-                                // Fallback: set a simple route if API fails
-                                setRouteCoordinates([newLocation, destCoords]);
-                            }
-                        },
-                        (error) => {
-                            console.error('Error getting current location:', error);
-                            // Fallback: use pickup location if geolocation fails
-                            if (pickupCoords) {
-                                setCurrentUserLocation(pickupCoords);
-                                fetchRoute(pickupCoords[0], pickupCoords[1], destCoords[0], destCoords[1]);
-                            }
-                        },
-                        {
-                            enableHighAccuracy: true,
-                            timeout: 5000,
-                            maximumAge: 0
-                        }
-                    );
-                } else if (pickupCoords) {
-                    // Fallback if geolocation not available
-                    setCurrentUserLocation(pickupCoords);
-                    fetchRoute(pickupCoords[0], pickupCoords[1], destCoords[0], destCoords[1]);
-                }
-            };
+        if (!otpVerified || !acceptedRide || !destCoords || !captainLocation) return undefined;
 
-            // Update immediately
-            updateRoute();
+        loadTripRoute(
+            captainLocation[0],
+            captainLocation[1],
+            destCoords[0],
+            destCoords[1]
+        );
 
-            // Set up interval to update every 10 seconds
-            locationUpdateIntervalRef.current = setInterval(updateRoute, 10000);
-
-            return () => {
-                if (locationUpdateIntervalRef.current) {
-                    clearInterval(locationUpdateIntervalRef.current);
-                }
-            };
-        }
-    }, [otpVerified, acceptedRide, destCoords, pickupCoords]);
+        return undefined;
+    }, [otpVerified, acceptedRide, destCoords, captainLocation, loadTripRoute]);
 
     const handleSearchComplete = async (pickupAddr, destAddr, pickupDesc, destDesc) => {
         setPickup(pickupAddr);
         setDestination(destAddr);
         setIsSearching(false);
         setShowFare(true);
+        setFare(null);
+        setCalculatingFare(true);
 
         try {
             let pCoords = pickupDesc && pickupDesc.coordinates ? pickupDesc.coordinates : null;
@@ -370,77 +433,16 @@ const UserLanding = () => {
             if (pCoords && dCoords && pCoords.lat && pCoords.lng && dCoords.lat && dCoords.lng) {
                 setPickupCoords([pCoords.lat, pCoords.lng]);
                 setDestCoords([dCoords.lat, dCoords.lng]);
-
-                // Fetch route between pickup and destination
-                try {
-                    const routeData = await api.getRoute(pCoords.lat, pCoords.lng, dCoords.lat, dCoords.lng);
-
-                    if (routeData.geometry && routeData.geometry.coordinates) {
-                        const leafletCoords = routeData.geometry.coordinates.map(coord => [coord[1], coord[0]]);
-                        setRouteCoordinates(leafletCoords);
-                    } else if (routeData.legs) {
-                        // Fallback for OSRM format if different
-                        const allCoordinates = [];
-                        routeData.legs.forEach(leg => {
-                            if (leg.steps) {
-                                leg.steps.forEach(step => {
-                                    if (step.geometry && step.geometry.coordinates) {
-                                        step.geometry.coordinates.forEach(coord => {
-                                            allCoordinates.push([coord[1], coord[0]]);
-                                        });
-                                    }
-                                });
-                            }
-                        });
-                        setRouteCoordinates(allCoordinates.length ? allCoordinates : [[pCoords.lat, pCoords.lng], [dCoords.lat, dCoords.lng]]);
-                    } else {
-                        setRouteCoordinates([[pCoords.lat, pCoords.lng], [dCoords.lat, dCoords.lng]]);
-                    }
-                } catch (err) {
-                    console.error('Error fetching route:', err);
-                    setRouteCoordinates([[pCoords.lat, pCoords.lng], [dCoords.lat, dCoords.lng]]);
-                }
+                await loadPreviewRoute(pCoords.lat, pCoords.lng, dCoords.lat, dCoords.lng);
             } else {
                 console.error("Missing coordinates for route", pCoords, dCoords);
             }
         } catch (error) {
             console.error("Error fetching trip details", error);
+        } finally {
+            setCalculatingFare(false);
         }
     }
-
-    const fetchRoute = async (slat, slong, elat, elong) => {
-        try {
-            const routeData = await api.getRoute(slat, slong, elat, elong);
-            if (routeData.geometry && routeData.geometry.coordinates) {
-                const coordinates = routeData.geometry.coordinates || [];
-                const leafletCoords = coordinates.map(coord => [coord[1], coord[0]]);
-                setRouteCoordinates(leafletCoords);
-            } else if (routeData.legs) {
-                const allCoordinates = [];
-                routeData.legs.forEach(leg => {
-                    if (leg.steps) {
-                        leg.steps.forEach(step => {
-                            if (step.geometry && step.geometry.coordinates) {
-                                step.geometry.coordinates.forEach(coord => {
-                                    allCoordinates.push([coord[1], coord[0]]);
-                                });
-                            }
-                        });
-                    }
-                });
-                if (allCoordinates.length > 0) {
-                    setRouteCoordinates(allCoordinates);
-                } else {
-                    setRouteCoordinates([[slat, slong], [elat, elong]]);
-                }
-            } else {
-                setRouteCoordinates([[slat, slong], [elat, elong]]);
-            }
-        } catch (err) {
-            console.error('Error fetching route:', err);
-            setRouteCoordinates([[slat, slong], [elat, elong]]);
-        }
-    };
 
     const handleCreateRide = async (vehicleType) => {
         if (!pickup || !destination || creatingRide) return;
@@ -511,6 +513,21 @@ const UserLanding = () => {
     }
 
     if (showFare) {
+        const mapPhase = resolveMapPhase({ showFare, searchingCaptain, acceptedRide, otpVerified });
+        const displayUserLocation =
+            (acceptedRide && !otpVerified && pickupCoords) ||
+            (!otpVerified && userLocation) ||
+            pickupCoords;
+        const mapCenter =
+            otpVerified && (captainLocation || pickupCoords)
+                ? captainLocation || pickupCoords
+                : pickupCoords || displayUserLocation;
+        const captainVehicleType =
+            captainDetails?.vehicle?.vehicleType ||
+            acceptedRide?.type ||
+            selectedVehicleType ||
+            'car';
+
         return (
             <div className="h-screen w-full relative">
                 {/* Header / Back Button for Map View */}
@@ -524,141 +541,27 @@ const UserLanding = () => {
                 </div>
 
                 <div className="h-full w-full bg-gray-200 relative z-0">
-                    {/* Map */}
-                    <MapContainer
-                        center={pickupCoords || [28.6139, 77.2090]} // Default New Delhi or user loc
-                        zoom={13}
-                        style={{ height: '100%', width: '100%', zIndex: 0 }}
-                        zoomControl={false}
-                    >
-                        {/* Black and White Theme - Similar to Uber */}
-                        <TileLayer
-                            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
-                            url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-                            className="grayscale"
-                        />
-                        <MapUpdater 
-                            center={
-                                otpVerified && currentUserLocation 
-                                    ? currentUserLocation 
-                                    : acceptedRide && captainLocation 
-                                    ? captainLocation 
-                                    : (pickupCoords || [28.6139, 77.2090])
-                            }
-                            bounds={
-                                otpVerified && destCoords
-                                    ? (currentUserLocation ? [currentUserLocation, destCoords] : (pickupCoords ? [pickupCoords, destCoords] : null))
-                                    : acceptedRide && captainLocation && pickupCoords && !otpVerified
-                                    ? [captainLocation, pickupCoords] 
-                                    : !acceptedRide && pickupCoords && destCoords 
-                                    ? [pickupCoords, destCoords] 
-                                    : null
-                            }
-                        />
-
-                        {/* User location marker - show current location when OTP verified, otherwise show initial location */}
-                        {(otpVerified && currentUserLocation) ? (
-                            <Marker position={currentUserLocation} icon={L.divIcon({
-                                className: 'user-marker',
-                                html: '<div style="background-color: #000; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>',
-                                iconSize: [20, 20],
-                                iconAnchor: [10, 10]
-                            })} />
-                        ) : userLocation && (
-                            <Marker position={userLocation} icon={L.divIcon({
-                                className: 'user-marker',
-                                html: '<div style="background-color: #000; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>',
-                                iconSize: [20, 20],
-                                iconAnchor: [10, 10]
-                            })} />
-                        )}
-
-                        {/* Pickup location marker when ride is accepted but OTP not verified */}
-                        {acceptedRide && pickupCoords && !otpVerified && (
-                            <Marker position={pickupCoords} icon={L.divIcon({
-                                className: 'pickup-marker',
-                                html: '<div style="background-color: #000; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>',
-                                iconSize: [20, 20],
-                                iconAnchor: [10, 10]
-                            })} />
-                        )}
-
-                        {/* Pickup and destination markers */}
-                        {!acceptedRide && pickupCoords && <Marker position={pickupCoords} />}
-                        {!acceptedRide && destCoords && <Marker position={destCoords} />}
-                        
-                        {/* Route between pickup and destination */}
-                        {!acceptedRide && routeCoordinates.length > 0 && (
-                            <Polyline 
-                                positions={routeCoordinates} 
-                                color="#000" 
-                                weight={4}
-                                opacity={0.8}
-                            />
-                        )}
-
-                        {/* Nearby captain locations while searching */}
-                        {searchingCaptain && nearbyCaptains.map((captain, index) => (
-                            captain.location && captain.location.lat && captain.location.lng && (
-                                <Marker 
-                                    key={captain._id || index}
-                                    position={[captain.location.lat, captain.location.lng]} 
-                                    icon={L.divIcon({
-                                        className: 'captain-marker',
-                                        html: '<div style="background-color: #666; width: 24px; height: 24px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>',
-                                        iconSize: [24, 24],
-                                        iconAnchor: [12, 12]
-                                    })} 
-                                />
-                            )
-                        ))}
-
-                        {/* Accepted captain location marker */}
-                        {captainLocation && acceptedRide && (
-                            <Marker position={captainLocation} icon={L.divIcon({
-                                className: 'car-marker',
-                                html: '<div style="background-color: #000; width: 30px; height: 30px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; font-size: 18px;">🚗</div>',
-                                iconSize: [30, 30],
-                                iconAnchor: [15, 15]
-                            })} />
-                        )}
-
-                        {/* Route from captain to user/pickup (before OTP verification) */}
-                        {routeCoordinates.length > 0 && acceptedRide && captainLocation && !otpVerified && (
-                            <Polyline
-                                positions={routeCoordinates}
-                                color="#000"
-                                weight={4}
-                                opacity={0.8}
-                            />
-                        )}
-
-                        {/* Route from current user location to destination (after OTP verification) */}
-                        {routeCoordinates.length > 0 && otpVerified && destCoords && (
-                            <Polyline
-                                positions={routeCoordinates}
-                                color="#000"
-                                weight={4}
-                                opacity={0.8}
-                            />
-                        )}
-
-                        {/* Destination marker (always show when we have destination) */}
-                        {destCoords && (
-                            <Marker position={destCoords} icon={L.divIcon({
-                                className: 'destination-marker',
-                                html: '<div style="background-color: #10b981; width: 24px; height: 24px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>',
-                                iconSize: [24, 24],
-                                iconAnchor: [12, 12]
-                            })} />
-                        )}
-                    </MapContainer>
+                    <RideMap
+                        phase={mapPhase}
+                        perspective="user"
+                        center={mapCenter}
+                        userLocation={otpVerified ? undefined : displayUserLocation}
+                        pickupCoords={pickupCoords}
+                        destCoords={destCoords}
+                        nearbyCaptains={nearbyCaptains}
+                        captainLocation={captainLocation}
+                        captainVehicleType={captainVehicleType}
+                        previewRoute={previewRoute}
+                        approachRoute={approachRoute}
+                        tripRoute={tripRoute}
+                    />
                 </div>
 
                 {/* Fare Bottom Sheet - Always show when showFare is true */}
                 {!searchingCaptain && !acceptedRide && (
                     <Fare
                         fare={fare}
+                        loadingFare={calculatingFare}
                         createRide={handleCreateRide}
                         creatingRide={creatingRide}
                         selectedVehicleType={selectedVehicleType}
@@ -734,12 +637,107 @@ const UserLanding = () => {
                     </div>
                 )}
 
-                {/* Fullscreen map indicator when ride started - minimal overlay */}
-                {otpVerified && acceptedRide && (
-                    <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur-sm text-gray-900 z-[100] rounded-full px-6 py-3 shadow-lg">
-                        <div className="flex items-center gap-3">
-                            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                            <p className="text-sm font-semibold">Ride in progress</p>
+                {/* Trip in progress panel */}
+                {otpVerified && acceptedRide && !rideCompleted && (
+                    <>
+                        <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-black text-white z-[100] rounded-full px-5 py-2.5 shadow-lg">
+                            <div className="flex items-center gap-2">
+                                <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                                <p className="text-sm font-semibold">
+                                    {tripStats?.eta ? `Reaching in ${tripStats.eta}` : 'Ride in progress'}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="fixed bottom-0 left-0 right-0 bg-white text-gray-900 z-[100] rounded-t-3xl shadow-[0_-5px_20px_rgba(0,0,0,0.3)] max-h-[55vh] overflow-y-auto">
+                            <div className="p-6">
+                                <div className="flex items-center justify-between mb-5">
+                                    <h2 className="text-2xl font-bold">On trip</h2>
+                                    <span className="px-4 py-2 bg-green-100 text-green-700 rounded-full text-sm font-semibold">
+                                        Started
+                                    </span>
+                                </div>
+
+                                <div className="grid grid-cols-3 gap-3 mb-5">
+                                    <div className="bg-gray-50 rounded-xl p-3 text-center">
+                                        <Clock className="w-5 h-5 mx-auto mb-1 text-gray-600" />
+                                        <p className="text-xl font-bold">{tripStats?.eta || '--'}</p>
+                                        <p className="text-xs text-gray-500">ETA</p>
+                                    </div>
+                                    <div className="bg-gray-50 rounded-xl p-3 text-center">
+                                        <Navigation className="w-5 h-5 mx-auto mb-1 text-gray-600" />
+                                        <p className="text-xl font-bold">{tripStats?.distance || '--'}</p>
+                                        <p className="text-xs text-gray-500">Distance</p>
+                                    </div>
+                                    <div className="bg-gray-50 rounded-xl p-3 text-center">
+                                        <IndianRupee className="w-5 h-5 mx-auto mb-1 text-gray-600" />
+                                        <p className="text-xl font-bold">{acceptedRide.fare ?? '--'}</p>
+                                        <p className="text-xs text-gray-500">Fare</p>
+                                    </div>
+                                </div>
+
+                                {captainDetails && (
+                                    <div className="bg-gray-50 rounded-xl p-4 mb-4">
+                                        <p className="text-xs uppercase tracking-wide text-gray-500 mb-3">Your driver</p>
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-12 h-12 bg-black rounded-full flex items-center justify-center text-white font-bold text-lg">
+                                                    {captainDetails.fullname?.firstname?.[0]?.toUpperCase() || 'C'}
+                                                </div>
+                                                <div>
+                                                    <p className="text-black font-bold">
+                                                        {captainDetails.fullname?.firstname || ''} {captainDetails.fullname?.lastname || ''}
+                                                    </p>
+                                                    <p className="text-gray-500 text-sm capitalize">
+                                                        {getVehicleLabel(captainDetails.vehicle?.vehicleType || acceptedRide.type)}
+                                                        {captainDetails.vehicle?.color ? ` · ${captainDetails.vehicle.color}` : ''}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div className="text-right">
+                                                <p className="text-black font-bold text-lg">
+                                                    {captainDetails.vehicle?.plate || 'N/A'}
+                                                </p>
+                                                <p className="text-gray-500 text-sm">License plate</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="space-y-3 border-t border-gray-100 pt-4">
+                                    <div className="flex items-start gap-3">
+                                        <div className="w-3 h-3 rounded-full bg-black mt-1.5 shrink-0"></div>
+                                        <div>
+                                            <p className="text-xs text-gray-500 uppercase">Pickup</p>
+                                            <p className="text-sm font-medium text-gray-900 line-clamp-2">
+                                                {acceptedRide.pickup || pickup || 'Pickup location'}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-start gap-3">
+                                        <MapPin className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
+                                        <div>
+                                            <p className="text-xs text-gray-500 uppercase">Drop-off</p>
+                                            <p className="text-sm font-medium text-gray-900 line-clamp-2">
+                                                {acceptedRide.destination || destination || 'Destination'}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </>
+                )}
+
+                {/* Ride completed overlay */}
+                {rideCompleted && (
+                    <div className="fixed inset-0 bg-black/50 z-[110] flex items-center justify-center p-6">
+                        <div className="bg-white rounded-2xl p-8 text-center max-w-sm w-full shadow-2xl">
+                            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <span className="text-3xl">✓</span>
+                            </div>
+                            <h2 className="text-2xl font-bold text-gray-900 mb-2">Trip Completed</h2>
+                            <p className="text-gray-600">Thanks for riding with us!</p>
                         </div>
                     </div>
                 )}

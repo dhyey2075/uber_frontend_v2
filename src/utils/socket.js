@@ -12,6 +12,12 @@ class SocketManager {
 
   connect(userId, userType) {
     if (this.socket?.connected) {
+      this.userId = userId;
+      this.userType = userType;
+      this.socket.emit('addSocketIdToUserDb', {
+        userId,
+        type: userType,
+      });
       console.log('Socket already connected');
       return;
     }

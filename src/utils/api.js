@@ -1,5 +1,21 @@
 const API_BASE_URL = import.meta.env.VITE_BASE_URL;
 
+function getUserToken() {
+  const token = localStorage.getItem('token');
+  if (!token || token === 'null' || token === 'undefined') {
+    throw new Error('Please sign in as a user to continue');
+  }
+  return token;
+}
+
+function getCaptainToken() {
+  const token = localStorage.getItem('captain_token');
+  if (!token || token === 'null' || token === 'undefined') {
+    throw new Error('Please sign in as a captain to continue');
+  }
+  return token;
+}
+
 export const api = {
   async register(userData) {
     const response = await fetch(`${API_BASE_URL}/users/register`, {
@@ -45,7 +61,7 @@ export const api = {
   },
 
   async getProfile() {
-    const token = localStorage.getItem('token');
+    const token = getUserToken();
     const response = await fetch(`${API_BASE_URL}/users/profile`, {
       method: 'GET',
       headers: {
@@ -108,7 +124,7 @@ export const api = {
   },
 
   async getCaptainProfile() {
-    const token = localStorage.getItem('captain_token');
+    const token = getCaptainToken();
     const response = await fetch(`${API_BASE_URL}/captains/profile`, {
       method: 'GET',
       headers: {
@@ -123,6 +139,25 @@ export const api = {
       throw new Error('Failed to fetch profile');
     }
     
+    return await response.json();
+  },
+
+  async getCaptainTodayStats() {
+    const token = getCaptainToken();
+    const response = await fetch(`${API_BASE_URL}/captains/stats/today`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      credentials: 'include',
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch today stats');
+    }
+
     return await response.json();
   },
 
@@ -165,7 +200,7 @@ export const api = {
 
   // Ride APIs
   async getFare(pickup, destination) {
-    const token = localStorage.getItem('token');
+    const token = getUserToken();
     const response = await fetch(`${API_BASE_URL}/rides/get-fare`, {
       method: 'POST',
       headers: {
@@ -185,7 +220,7 @@ export const api = {
   },
 
   async createRide(pickup, destination, vehicleType) {
-    const token = localStorage.getItem('token');
+    const token = getUserToken();
     const response = await fetch(`${API_BASE_URL}/rides/create-ride`, {
       method: 'POST',
       headers: {
@@ -205,7 +240,7 @@ export const api = {
   },
 
   async confirmRide(ride, captainId) {
-    const token = localStorage.getItem('captain_token');
+    const token = getCaptainToken();
     const response = await fetch(`${API_BASE_URL}/rides/confirm-ride`, {
       method: 'POST',
       headers: {
@@ -226,6 +261,9 @@ export const api = {
 
   async getRoute(slat, slong, elat, elong) {
     const token = localStorage.getItem('token') || localStorage.getItem('captain_token');
+    if (!token || token === 'null' || token === 'undefined') {
+      throw new Error('Please sign in to continue');
+    }
     const response = await fetch(`${API_BASE_URL}/maps/getDistance?slat=${slat}&slong=${slong}&elat=${elat}&elong=${elong}`, {
       method: 'GET',
       headers: {
@@ -246,6 +284,9 @@ export const api = {
 
   async getCoordinates(address) {
     const token = localStorage.getItem('token') || localStorage.getItem('captain_token');
+    if (!token || token === 'null' || token === 'undefined') {
+      throw new Error('Please sign in to continue');
+    }
     const response = await fetch(`${API_BASE_URL}/maps/getAddressCoordinates?address=${encodeURIComponent(address)}`, {
       method: 'GET',
       headers: {
