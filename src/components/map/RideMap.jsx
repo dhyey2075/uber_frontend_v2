@@ -99,7 +99,7 @@ export default function RideMap({
       className={className}
     >
       <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
+        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
         url={CARTO_TILE_URL}
         className="grayscale"
       />

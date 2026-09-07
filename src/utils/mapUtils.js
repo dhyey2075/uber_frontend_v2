@@ -4,7 +4,10 @@ import L from 'leaflet';
 import polyline from '@mapbox/polyline';
 import { getVehicleIconUrl } from './vehicleAssets';
 
-export const CARTO_TILE_URL = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+const CARTO_API_KEY = import.meta.env.VITE_CARTO_API_KEY ?? '';
+export const CARTO_TILE_URL = CARTO_API_KEY
+  ? `https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png?key=${CARTO_API_KEY}`
+  : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
 
 export const DEFAULT_CENTER = [28.6139, 77.2090];
 
