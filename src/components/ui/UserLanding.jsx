@@ -28,6 +28,7 @@ import LocationSearch from './LocationSearch'
 import Fare from './Fare'
 import { api } from '../../utils/api'
 import { socketManager } from '../../utils/socket'
+import { clearAllTokens } from '../../utils/auth'
 import { useToast } from '../ui/use-toast'
 
 const UserLanding = () => {
@@ -58,6 +59,7 @@ const UserLanding = () => {
     const [rideCompleted, setRideCompleted] = useState(false)
     const [currentUserLocation, setCurrentUserLocation] = useState(null)
     const [tripStats, setTripStats] = useState(null)
+    const [user, setUser] = useState(null)
     const navigate = useNavigate()
     const { toast } = useToast()
     const acceptedRideRef = useRef(null)
@@ -170,6 +172,7 @@ const UserLanding = () => {
         const fetchProfile = async () => {
             try {
                 const userData = await api.getProfile();
+                setUser(userData);
                 if (userData._id) {
                     socketManager.connect(userData._id, 'user');
                 }
@@ -443,6 +446,13 @@ const UserLanding = () => {
             setCalculatingFare(false);
         }
     }
+
+    const handleLogout = () => {
+        socketManager.disconnect();
+        clearAllTokens();
+        window.dispatchEvent(new Event('tokenChange'));
+        navigate('/user/signin', { replace: true });
+    };
 
     const handleCreateRide = async (vehicleType) => {
         if (!pickup || !destination || creatingRide) return;
@@ -747,8 +757,32 @@ const UserLanding = () => {
 
     return (
         <div className="min-h-screen bg-white pb-24 text-gray-900">
-            {/* Top Tabs */}
+            {/* Header + Tabs */}
             <div className="sticky top-0 z-10 bg-white border-b border-gray-100">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                    {user ? (
+                        <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-9 h-9 shrink-0 rounded-full bg-black flex items-center justify-center text-white font-bold text-sm">
+                                {user.fullname?.firstname?.[0]?.toUpperCase() || 'U'}
+                            </div>
+                            <div className="min-w-0">
+                                <p className="text-sm font-semibold text-gray-900 truncate">
+                                    {user.fullname?.firstname} {user.fullname?.lastname}
+                                </p>
+                                <p className="text-xs text-gray-500 truncate">{user.email}</p>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="h-9" />
+                    )}
+                    <button
+                        type="button"
+                        onClick={handleLogout}
+                        className="shrink-0 text-sm font-medium text-gray-600 hover:text-black transition-colors"
+                    >
+                        Logout
+                    </button>
+                </div>
                 <div className="flex w-full">
                     <button
                         onClick={() => setActiveTab('Rides')}
